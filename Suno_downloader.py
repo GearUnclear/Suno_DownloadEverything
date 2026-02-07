@@ -13,11 +13,36 @@ from mutagen.mp3 import MP3
 init(autoreset=True)
 
 FILENAME_BAD_CHARS = r'[<>:"/\\|?*\x00-\x1F]'
+UNTITLED_PREFIX = "Untitled"
+LIKED_PREFIX = "(Liked) "
 
 def sanitize_filename(name, maxlen=200):
     safe = re.sub(FILENAME_BAD_CHARS, "_", name)
     safe = safe.strip(" .")
     return safe[:maxlen] if len(safe) > maxlen else safe
+
+def clip_is_liked(clip):
+    return bool(clip.get("is_liked"))
+
+def apply_liked_prefix(name, liked):
+    if not liked:
+        return name
+    if name.startswith(LIKED_PREFIX):
+        return name
+    return f"{LIKED_PREFIX}{name}"
+
+def clip_filename_base(clip):
+    raw_title = clip.get("title")
+    title = raw_title.strip() if isinstance(raw_title, str) else ""
+    if title:
+        base = apply_liked_prefix(title, clip_is_liked(clip))
+    else:
+        clip_id = clip.get("id") or "unknown"
+        created_at = clip.get("created_at") or ""
+        date_part = created_at[:10] if isinstance(created_at, str) and len(created_at) >= 10 else "unknown-date"
+        untitled = f"{UNTITLED_PREFIX} {date_part} {clip_id[:8]}"
+        base = apply_liked_prefix(untitled, clip_is_liked(clip))
+    return sanitize_filename(base)
 
 def pick_proxy_dict(proxies_list):
     if not proxies_list: return None
@@ -74,9 +99,19 @@ def extract_private_song_info(token_string, proxies_list=None):
 
         print(f"{Fore.GREEN}Found {len(clips)} clips on page {page}.")
         for clip in clips:
-            uuid, title, audio_url, image_url = clip.get("id"), clip.get("title"), clip.get("audio_url"), clip.get("image_url")
-            if (uuid and title and audio_url) and uuid not in song_info:
-                song_info[uuid] = {"title": title, "audio_url": audio_url, "image_url": image_url, "display_name": clip.get("display_name")}
+            uuid, audio_url, image_url = clip.get("id"), clip.get("audio_url"), clip.get("image_url")
+            if (uuid and audio_url) and uuid not in song_info:
+                raw_title = clip.get("title")
+                title = raw_title.strip() if isinstance(raw_title, str) else ""
+                display_title = apply_liked_prefix(title, clip_is_liked(clip)) if title else clip_filename_base(clip)
+                song_info[uuid] = {
+                    "title": title,
+                    "audio_url": audio_url,
+                    "image_url": image_url,
+                    "display_name": clip.get("display_name"),
+                    "filename_base": clip_filename_base(clip),
+                    "display_title": display_title,
+                }
         page += 1
         time.sleep(5)
     return song_info
@@ -121,8 +156,9 @@ def main():
 
     print(f"\n{Fore.CYAN}--- Starting Download Process ({len(songs)} songs to check) ---")
     for uuid, obj in songs.items():
-        title = obj["title"] or uuid
-        fname = sanitize_filename(title) + ".mp3"
+        title = obj.get("display_title") or obj.get("title") or uuid
+        metadata_title = obj.get("title") or obj.get("filename_base") or uuid
+        fname = obj.get("filename_base", sanitize_filename(title)) + ".mp3"
         out_path = os.path.join(args.directory, fname)
 
         print(f"Processing: {Fore.GREEN}🎵 {title}")
@@ -135,7 +171,7 @@ def main():
             
             if args.with_thumbnail and obj.get("image_url"):
                 print(f"  -> Embedding thumbnail...")
-                embed_metadata(saved_path, image_url=obj["image_url"], token=args.token, artist=obj.get("display_name"), title=title)
+                embed_metadata(saved_path, image_url=obj["image_url"], token=args.token, artist=obj.get("display_name"), title=metadata_title)
             
             # Let the user know if a new version was created
             if os.path.basename(saved_path) != os.path.basename(out_path):

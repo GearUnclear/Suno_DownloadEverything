@@ -1,0 +1,12 @@
+# Python caches/env
+__pycache__/
+*.pyc
+.venv/
+
+# Local runtime artifacts
+out/
+run.log
+run.pid
+
+# Local secrets
+token.txt

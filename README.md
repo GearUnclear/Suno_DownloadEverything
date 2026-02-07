@@ -1,92 +1,191 @@
-# Suno Bulk Downloader
+# Suno DownloadEverything
 
-A simple command-line Python script to bulk download all of your private songs from [Suno AI](https://suno.com/).
+Reliable tools to mirror your Suno library locally, keep it synced as new songs appear, and recover missing files.
 
-This tool iterates through your library pages, downloads each song, and can optionally embed the cover art directly into the MP3 file's metadata.
+## What this repo contains
 
+- `progress_check.py`
+  - Fetches your feed (with cache and retries), compares API vs local MP3s, and writes missing/extra reports.
+- `targeted_update.py`
+  - Downloads only files currently identified as missing from cached API pages.
+  - Designed to run while `progress_check.py` is updating cache.
+- `Suno_downloader.py`
+  - Legacy full-library downloader with optional cover-art embedding.
 
-## Features
+## Filename rules
 
-- **Bulk Download:** Downloads all songs from your private library.
-- **Metadata Embedding:** Automatically embeds the title, artist, and cover art (thumbnail) into the MP3 file.
-- **File Sanitization:** Cleans up song titles to create valid filenames for any operating system.
-- **Duplicate Handling:** If a file with the same name already exists, it saves the new file with a version suffix (e.g., `My Song v2.mp3`) to avoid overwriting.
-- **Proxy Support:** Allows routing traffic through an HTTP/S proxy.
-- **User-Friendly Output:** Uses colored console output for clear and readable progress updates.
+All scripts now use the same filename convention:
 
-
-https://imgur.com/a/Ox9goh7
-
+- Normal titled song: `Song Name.mp3`
+- Duplicate title: `Song Name v2.mp3`, `Song Name v3.mp3`, etc.
+- Untitled song: `Untitled YYYY-MM-DD <clipid8>.mp3`
+- Liked song (`is_liked=true`): prefixed with `(Liked) `
+  - Example: `(Liked) Song Name.mp3`
+  - Example: `(Liked) Untitled 2026-02-07 ab12cd34.mp3`
 
 ## Requirements
 
-- [Python 3.6+](https://www.python.org/downloads/)
-- `pip` (Python's package installer, usually comes with Python)
+- Python 3.8+
+- `pip`
+- A valid Suno auth token
 
-## Installation
+Install dependencies:
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/your-username/your-repo-name.git
-    cd your-repo-name
-    ```
-    *(Alternatively, you can download the repository as a ZIP file and extract it.)*
-
-2.  **Install the required Python packages:**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-## How to Use
-
-The script requires a **Suno Authorization Token** to access your private library. Here’s how to find it:
-
-### Step 1: Find Your Authorization Token
-
-1.  Open your web browser and go to [suno.com](https://suno.com/) and log in.
-2.  Open your browser's **Developer Tools**. You can usually do this by pressing `F12` or `Ctrl+Shift+I` (Windows/Linux) or `Cmd+Option+I` (Mac).
-3.  Go to the **Network** tab in the Developer Tools.
-4.  In the filter box, type `feed` to easily find the right request.
-5.  Refresh the Suno page or click around your library. You should see a new request appear in the list.
-6.  Click on that request (it might be named something like `v2?hide_disliked=...`).
-7.  In the new panel that appears, go to the **Headers** tab.
-8.  Scroll down to the **Request Headers** section.
-9.  Find the `Authorization` header. The value will look like `Bearer [long_string_of_characters]`.
-10. **Copy only the long string of characters** (the token itself), *without* the word `Bearer `.
-
-Example (Copy the whole string)
-https://i.imgur.com/PQtOIM5.jpeg
-
-
-**Important:** Your token is like a password. **Do not share it with anyone.**
-
-### Step 2: Run the Script
-
-Open your terminal or command prompt, navigate to the script's directory, and run it using the following command structure.
-
-**Basic Usage (downloads audio only):**
 ```bash
-python suno_downloader.py --token "your_token_here"
+pip install -r requirements.txt
 ```
-This will download all songs into a new folder named `suno-downloads`.
 
-**Full-Featured Usage (with thumbnails and a custom directory):**
+## Get your Suno token
+
+1. Open `https://suno.com` and sign in.
+2. Open browser DevTools -> Network.
+3. Refresh the page and find a request to feed API (`/api/feed/v2?...`).
+4. In request headers, copy `Authorization: Bearer ...`.
+5. Save only the token string (without `Bearer `) in `token.txt`.
+
+`token.txt` is read automatically by `progress_check.py` and `targeted_update.py` if `--token` is not passed.
+
+## Recommended workflow (reliable + fast)
+
+### 1) Refresh status with smart cache head sync
+
 ```bash
-python suno_downloader.py --token "your_token_here" --directory "My Suno Music" --with-thumbnail
+python3 progress_check.py --head-sync-pages 8 --max-retries 8 --sleep 0.05
 ```
-This will download all songs and their thumbnails into a folder named `My Suno Music`.
 
-### Command-Line Arguments
+What this does:
 
-- `--token` **(Required)**: Your Suno authorization token.
-- `--directory` (Optional): The local directory where files will be saved. Defaults to `suno-downloads`.
-- `--with-thumbnail` (Optional): A flag to download and embed the song's cover art.
-- `--proxy` (Optional): A proxy server URL (e.g., `http://user:pass@127.0.0.1:8080`). You can provide multiple proxies separated by commas.
+- Checks newest live pages first and pushes cache forward when new songs are found.
+- Uses cached pages for the full scan to stay fast.
+- Writes:
+  - `out/progress_summary.json`
+  - `out/progress_missing.txt`
+  - `out/progress_extra.txt`
+  - `out/progress_check.log`
 
-## Disclaimer
+### 2) Download all currently-missing files
 
-This is an unofficial tool and is not affiliated with Suno, Inc. It is intended for personal use only to back up your own creations. Please respect Suno's Terms of Service. The developers of this script are not responsible for any misuse.
+```bash
+python3 targeted_update.py --once --max-retries 8 --download-sleep 0.05
+```
 
-## License
+Important behavior:
 
-This project is licensed under the MIT License. See the `LICENSE` file for details.
+- `--once` is drain mode: it runs immediate cycles until missing files are cleared (or no eligible downloads remain).
+- `--max-downloads` now defaults to `0` (unlimited per cycle), so it attempts all identified missing files each cycle.
+- It does **not** block re-downloads using stale downloaded-id state, so previously removed files can be recovered.
+
+### 3) Verify clean
+
+```bash
+python3 progress_check.py --head-sync-pages 8 --max-retries 8 --sleep 0.05
+```
+
+Clean state means in `out/progress_summary.json`:
+
+- `missing_titles = 0`
+- `extra_titles = 0`
+
+## Expected workflow (daily operation)
+
+Use this every time you want the local folder fully synchronized:
+
+1. Run a status + cache-head sync pass.
+2. Run targeted drain download to pull every missing file currently identified.
+3. Run a final status check and confirm clean summary.
+
+Commands:
+
+```bash
+python3 progress_check.py --head-sync-pages 8 --max-retries 8 --sleep 0.05
+python3 targeted_update.py --once --max-retries 8 --download-sleep 0.05
+python3 progress_check.py --head-sync-pages 8 --max-retries 8 --sleep 0.05
+```
+
+Expected final result in `out/progress_summary.json`:
+
+- `complete_api_fetch: true`
+- `missing_titles: 0`
+- `extra_titles: 0`
+
+If new songs are created while this is running, run the same 3 commands again.
+
+## Continuous sync mode
+
+Terminal A:
+
+```bash
+python3 progress_check.py --head-sync-pages 8 --max-retries 8 --sleep 0.05
+```
+
+Terminal B:
+
+```bash
+python3 targeted_update.py --poll-interval 5 --stop-when-clean --max-retries 8 --download-sleep 0.05
+```
+
+This keeps downloading missing tracks while cache is being updated.
+
+## Script reference
+
+### `progress_check.py`
+
+Key options:
+
+- `--refresh`: ignore cache and refetch everything
+- `--head-sync-pages N`: number of live head pages to probe before using cache
+- `--max-retries N`: retries per page (`0` = infinite)
+- `--fail-on-partial`: exits non-zero if feed did not complete
+
+### `targeted_update.py`
+
+Key options:
+
+- `--once`: drain cycles then exit
+- `--max-downloads N`: per-cycle cap (`0` = all missing, default)
+- `--max-retries N`: retries per clip (`0` = infinite)
+- `--stop-when-clean`: exit when no missing files and `progress_check` is complete
+- `--dry-run`: show planned downloads without writing files
+
+### `Suno_downloader.py`
+
+Example:
+
+```bash
+python3 Suno_downloader.py --token "YOUR_TOKEN" --directory "suno-downloads" --with-thumbnail
+```
+
+Options:
+
+- `--token` (required)
+- `--directory`
+- `--with-thumbnail`
+- `--proxy`
+
+## Output files
+
+All operational artifacts are in `out/`:
+
+- `out/api_cache/page_XXXX.json`
+- `out/progress_check.log`
+- `out/progress_summary.json`
+- `out/progress_missing.txt`
+- `out/progress_extra.txt`
+- `out/targeted_update.log`
+- `out/targeted_update_state.json`
+
+## Troubleshooting
+
+- `401` / `403`
+  - Token expired/invalid. Re-export token from browser and retry.
+- `429`
+  - Rate limiting. Scripts auto-retry with backoff; reduce aggressiveness if needed (`--sleep`, `--download-sleep`).
+- DNS / reachability errors
+  - Network/VPN/DNS issue; scripts log warnings and retry.
+- New songs not appearing
+  - Run `progress_check.py` with head sync enabled (default behavior) or use `--refresh` for full recache.
+
+## Notes
+
+- This is an unofficial toolset and not affiliated with Suno.
+- Use it for your own content and in compliance with Suno terms.
