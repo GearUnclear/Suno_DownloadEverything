@@ -12,8 +12,8 @@ This repo supports both one-shot bulk download and a reliable sync workflow that
 - **Smart Cache Sync:** Reuse API cache for speed while pulling new head-page songs.
 - **Liked Filename Prefixing:** Songs with `is_liked=true` are saved with `(Liked) ` prefix.
 - **Duplicate Handling:** Saves duplicate titles as versioned files (for example, `My Song v2.mp3`).
-- **Metadata Embedding:** Legacy downloader can embed title/artist/cover art.
-- **Proxy Support:** Legacy downloader supports HTTP/S proxies.
+- **Metadata Embedding:** First-pass downloader can embed title/artist/cover art.
+- **Proxy Support:** First-pass downloader supports HTTP/S proxies.
 
 https://imgur.com/a/Ox9goh7
 
@@ -54,7 +54,17 @@ https://i.imgur.com/PQtOIM5.jpeg
 
 **Important:** Treat your token like a password. Do not share it.
 
-### Step 2: Run the Recommended Sync Workflow
+### Step 2: First Download Attempt (Bulk)
+
+Run the first-pass downloader:
+
+```bash
+python3 Suno_downloader.py --with-thumbnail
+```
+
+This attempts to pull all currently-missing files directly from the live API feed into `out/`.
+
+### Step 3: Verify and Fill Any Gaps
 
 Run these three commands in order:
 
@@ -66,9 +76,10 @@ python3 progress_check.py --head-sync-pages 8 --max-retries 8 --sleep 0.05
 
 This is the expected operational workflow:
 
-1. Build/update API view and missing report.
-2. Download all currently identified missing files.
-3. Verify clean status.
+1. Run first-pass bulk downloader (`Suno_downloader.py`).
+2. Build/update API view and missing report.
+3. Download all currently identified missing files.
+4. Verify clean status.
 
 Expected clean result in `out/progress_summary.json`:
 
@@ -76,7 +87,10 @@ Expected clean result in `out/progress_summary.json`:
 - `missing_titles: 0`
 - `extra_titles: 0`
 
-### Important Targeted Update Behavior
+### Important First-Pass + Targeted Behavior
+
+- `Suno_downloader.py` now defaults to `out/` and token-file loading (`token.txt`), so it fits as workflow Step 1.
+- It avoids duplicate-heavy reruns by treating existing per-title file counts as already present and downloading only the deficit.
 
 - `targeted_update.py --once` runs in drain mode and continues until missing files are cleared (or no eligible clips remain).
 - `--max-downloads` defaults to `0`, which means unlimited per cycle (download all currently identified missing files each cycle).
@@ -95,14 +109,14 @@ Terminal B:
 python3 targeted_update.py --poll-interval 5 --stop-when-clean --max-retries 8 --download-sleep 0.05
 ```
 
-## Basic Legacy Downloader Usage
+## Direct Downloader Usage
 
 **Basic Usage:**
 ```bash
-python3 Suno_downloader.py --token "your_token_here"
+python3 Suno_downloader.py
 ```
 
-**With Thumbnail + Custom Directory:**
+**With Custom Token + Output Directory:**
 ```bash
 python3 Suno_downloader.py --token "your_token_here" --directory "My Suno Music" --with-thumbnail
 ```
@@ -128,10 +142,14 @@ python3 Suno_downloader.py --token "your_token_here" --directory "My Suno Music"
 
 ### `Suno_downloader.py`
 
-- `--token` **(Required)**
+- `--token` (optional; overrides token file)
+- `--token-file` (default: `token.txt`)
 - `--directory`
 - `--with-thumbnail`
 - `--proxy`
+- `--max-retries`
+- `--fail-on-partial`
+- `--fail-on-download-errors`
 
 ## Output Files
 

@@ -115,10 +115,10 @@ def rewrite_cache_clips(cache_dir, clips):
         old.unlink()
 
     if not clips:
-        (cache_dir / "page_0001.json").write_text(json.dumps({"clips": []}))
+        (cache_dir / "page_0000.json").write_text(json.dumps({"clips": []}))
         return
 
-    page = 1
+    page = 0
     for i in range(0, len(clips), CACHE_PAGE_SIZE):
         chunk = clips[i:i + CACHE_PAGE_SIZE]
         (cache_dir / f"page_{page:04d}.json").write_text(json.dumps({"clips": chunk}))
@@ -163,7 +163,7 @@ def sync_cache_head(session, base_api_url, headers, cache_dir, args, log):
     live_prefix = []
     anchor_found = False
 
-    for page in range(1, args.head_sync_pages + 1):
+    for page in range(0, args.head_sync_pages):
         _, batch = fetch_live_page(session, base_api_url, headers, page, args, log)
         if not batch:
             rewrite_cache_clips(cache_dir, [])
@@ -281,13 +281,13 @@ def main():
     elif args.refresh:
         cache_head_sync = "skipped_refresh_mode"
 
-    page = 1
+    page = 0
     clips = []
     complete = True
     stop_reason = "end_of_feed"
 
     while True:
-        if args.max_pages and page > args.max_pages:
+        if args.max_pages and page >= args.max_pages:
             log(f"Reached max-pages limit: {args.max_pages}")
             complete = False
             stop_reason = f"max_pages_reached:{args.max_pages}"
